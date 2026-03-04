@@ -62,30 +62,37 @@ app.get("/rankings", async (req, res) => {
       }
     });
     const html = await r.text();
-
-    const jsonMatch = html.match(/var rankingData\s*=\s*(\[[\s\S]*?\]);/) ||
-                      html.match(/"rankingData"\s*:\s*(\[[\s\S]*?\])[,}]/) ||
-                      html.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?});/);
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[1]);
-      const rankings = (Array.isArray(data) ? data : Object.values(data).find(Array.isArray) || [])
-        .map(p => ({ rank: p.rank || p.Rank || p.ranking, name: p.player?.fullName || p.playerName || p.name || p.fullName || "" }))
-        .filter(p => p.rank && p.name);
-      return res.json(rankings);
-    }
-
     const rows = [];
-    const rowRegex = /<tr[^>]*class="[^"]*ranking-item[^"]*"[\s\S]*?<\/tr>/gi;
-    let match;
-    while ((match = rowRegex.exec(html)) !== null) {
-      const row = match[0];
-      const rankM = row.match(/data-rank="(\d+)"/);
-      const nameM = row.match(/class="[^"]*player-cell[^"]*"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/);
-      if (rankM && nameM) rows.push({ rank: parseInt(rankM[1]), name: nameM[1].trim() });
-    }
-    if (rows.length > 0) return res.json(rows);
 
-    res.status(502).json({ error: "No se pudo parsear el ranking de ATP", htmlLength: html.length });
+    // Método 1: JSON con PlayerName (índice ~1808493)
+    const playerNameIdx = html.indexOf("PlayerName");
+    if (playerNameIdx > 0) {
+      const chunk = html.substring(Math.max(0, playerNameIdx - 5000), playerNameIdx + 200000);
+      const re1 = /"Ranking"\s*:\s*(\d+)[^}]*?"PlayerName"\s*:\s*"([^"]+)"/g;
+      const re2 = /"PlayerName"\s*:\s*"([^"]+)"[^}]*?"Ranking"\s*:\s*(\d+)/g;
+      let m;
+      while ((m = re1.exec(chunk)) !== null) rows.push({ rank: parseInt(m[1]), name: m[2].trim() });
+      if (rows.length === 0) {
+        while ((m = re2.exec(chunk)) !== null) rows.push({ rank: parseInt(m[2]), name: m[1].trim() });
+      }
+    }
+
+    // Método 2: rank + URL de jugador en HTML
+    if (rows.length === 0) {
+      const re = /rank[^>]*>\s*(\d+)\s*<\/[^>]+>[\s\S]{0,500}?\/en\/players\/[^/]+\/[^/]+\/overview"[^>]*>\s*([^<]+)<\/a>/gi;
+      let m;
+      while ((m = re.exec(html)) !== null) rows.push({ rank: parseInt(m[1]), name: m[2].trim() });
+    }
+
+    if (rows.length > 0) {
+      const seen = new Set();
+      const unique = rows
+        .filter(r => { if (seen.has(r.rank)) return false; seen.add(r.rank); return true; })
+        .sort((a, b) => a.rank - b.rank);
+      return res.json(unique);
+    }
+
+    res.status(502).json({ error: "No se pudo parsear", htmlLength: html.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -119,7 +126,11 @@ app.get("/rankings-debug", async (req, res) => {
     const idx = html.indexOf("Alcaraz");
     const alcarazContext = idx > 0 ? html.substring(idx - 400, idx + 400) : "not found";
 
-    res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext });
+    // Mostrar contexto alrededor de PlayerName
+    const pnIdx = html.indexOf("PlayerName");
+    const playerNameContext = pnIdx > 0 ? html.substring(pnIdx - 200, pnIdx + 500) : "not found";
+
+    res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext, playerNameContext });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
