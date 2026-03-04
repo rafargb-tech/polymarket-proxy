@@ -12,7 +12,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── /tennis — partidos Polymarket ──────────────────────────────────────────
+// ── /tennis — partidos Polymarket ─────────────────────────────────────────
 app.get("/tennis", async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
@@ -49,7 +49,7 @@ app.get("/tennis", async (req, res) => {
   }
 });
 
-// ── /rankings — ranking ATP completo desde atptour.com ────────────────────
+// ── /rankings — ranking ATP completo ──────────────────────────────────────
 app.get("/rankings", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 500;
@@ -62,11 +62,8 @@ app.get("/rankings", async (req, res) => {
         "Referer": "https://www.atptour.com/",
       }
     });
-
     const html = await r.text();
 
-    // La ATP carga los rankings en una tabla con data-rank, data-player
-    // Parseamos con regex el JSON embebido en el HTML
     const jsonMatch = html.match(/var rankingData\s*=\s*(\[[\s\S]*?\]);/) ||
                       html.match(/"rankingData"\s*:\s*(\[[\s\S]*?\])[,}]/) ||
                       html.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?});/);
@@ -82,12 +79,11 @@ app.get("/rankings", async (req, res) => {
       return res.json(rankings);
     }
 
-    // Fallback: parsear la tabla HTML directamente
+    // Fallback: parsear tabla HTML
     const rows = [];
     const rowRegex = /<tr[^>]*class="[^"]*ranking-item[^"]*"[\s\S]*?<\/tr>/gi;
     const rankRegex = /data-rank="(\d+)"/;
     const nameRegex = /class="[^"]*player-cell[^"]*"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/;
-
     let match;
     while ((match = rowRegex.exec(html)) !== null) {
       const row = match[0];
@@ -97,12 +93,39 @@ app.get("/rankings", async (req, res) => {
         rows.push({ rank: parseInt(rankM[1]), name: nameM[1].trim() });
       }
     }
-
     if (rows.length > 0) return res.json(rows);
 
-    // Si todo falla, devolver error descriptivo
     res.status(502).json({ error: "No se pudo parsear el ranking de ATP", htmlLength: html.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
+// ── /rankings-debug — diagnóstico del HTML de ATP ─────────────────────────
+app.get("/rankings-debug", async (req, res) => {
+  try {
+    const r = await fetch("https://www.atptour.com/en/rankings/singles?rankRange=1-500", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.atptour.com/",
+      }
+    });
+    const html = await r.text();
+    const tableIndex = html.indexOf("ranking-item");
+    res.json({
+      htmlLength: html.length,
+      hasRankingData: html.includes("rankingData"),
+      hasInitialState: html.includes("__INITIAL_STATE__"),
+      hasPlayerName: html.includes("playerName"),
+      hasFullName: html.includes("fullName"),
+      tableIndex,
+      tableContext: tableIndex > 0
+        ? html.substring(tableIndex - 200, tableIndex + 800)
+        : "not found",
+      first3000: html.substring(0, 3000),
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
