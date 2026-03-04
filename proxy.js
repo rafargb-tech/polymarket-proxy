@@ -48,6 +48,11 @@ app.get("/tennis", async (req, res) => {
   }
 });
 
+// Convierte slug a nombre: "carlos-alcaraz" → "Carlos Alcaraz"
+function slugToName(slug) {
+  return slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 // ── /rankings ──────────────────────────────────────────────────────────────
 app.get("/rankings", async (req, res) => {
   try {
@@ -62,35 +67,24 @@ app.get("/rankings", async (req, res) => {
       }
     });
     const html = await r.text();
+
+    // Extraer URLs /en/players/nombre-apellido/id/overview en orden
+    // Cada jugador aparece dos veces (overview + rankings-breakdown), tomamos solo overview
+    const overviewRegex = /\/en\/players\/([a-z0-9-]+)\/[a-z0-9]+\/overview/g;
+    const seen = new Set();
     const rows = [];
-
-    // Método 1: JSON con PlayerName (índice ~1808493)
-    const playerNameIdx = html.indexOf("PlayerName");
-    if (playerNameIdx > 0) {
-      const chunk = html.substring(Math.max(0, playerNameIdx - 5000), playerNameIdx + 200000);
-      const re1 = /"Ranking"\s*:\s*(\d+)[^}]*?"PlayerName"\s*:\s*"([^"]+)"/g;
-      const re2 = /"PlayerName"\s*:\s*"([^"]+)"[^}]*?"Ranking"\s*:\s*(\d+)/g;
-      let m;
-      while ((m = re1.exec(chunk)) !== null) rows.push({ rank: parseInt(m[1]), name: m[2].trim() });
-      if (rows.length === 0) {
-        while ((m = re2.exec(chunk)) !== null) rows.push({ rank: parseInt(m[2]), name: m[1].trim() });
-      }
+    let m;
+    while ((m = overviewRegex.exec(html)) !== null) {
+      const slug = m[1];
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      // Excluir slugs de plantillas o variables
+      if (slug.includes("${") || slug.includes("getProfile")) continue;
+      rows.push({ rank: rows.length + 1, name: slugToName(slug) });
+      if (rows.length >= limit) break;
     }
 
-    // Método 2: rank + URL de jugador en HTML
-    if (rows.length === 0) {
-      const re = /rank[^>]*>\s*(\d+)\s*<\/[^>]+>[\s\S]{0,500}?\/en\/players\/[^/]+\/[^/]+\/overview"[^>]*>\s*([^<]+)<\/a>/gi;
-      let m;
-      while ((m = re.exec(html)) !== null) rows.push({ rank: parseInt(m[1]), name: m[2].trim() });
-    }
-
-    if (rows.length > 0) {
-      const seen = new Set();
-      const unique = rows
-        .filter(r => { if (seen.has(r.rank)) return false; seen.add(r.rank); return true; })
-        .sort((a, b) => a.rank - b.rank);
-      return res.json(unique);
-    }
+    if (rows.length > 0) return res.json(rows);
 
     res.status(502).json({ error: "No se pudo parsear", htmlLength: html.length });
   } catch (e) {
@@ -126,11 +120,18 @@ app.get("/rankings-debug", async (req, res) => {
     const idx = html.indexOf("Alcaraz");
     const alcarazContext = idx > 0 ? html.substring(idx - 400, idx + 400) : "not found";
 
-    // Mostrar contexto alrededor de PlayerName
     const pnIdx = html.indexOf("PlayerName");
     const playerNameContext = pnIdx > 0 ? html.substring(pnIdx - 200, pnIdx + 500) : "not found";
 
-    res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext, playerNameContext });
+    // Preview primeros 20 slugs encontrados
+    const overviewRegex = /\/en\/players\/([a-z0-9-]+)\/[a-z0-9]+\/overview/g;
+    const slugs = [];
+    let m;
+    while ((m = overviewRegex.exec(html)) !== null && slugs.length < 20) {
+      if (!slugs.includes(m[1])) slugs.push(m[1]);
+    }
+
+    res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext, playerNameContext, slugPreview: slugs });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
