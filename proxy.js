@@ -130,6 +130,42 @@ app.get("/rankings-debug", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// ── /rankings-debug ────────────────────────────────────────────────────────
+app.get("/rankings-debug", async (req, res) => {
+  try {
+    const r = await fetch("https://www.atptour.com/en/rankings/singles?rankRange=1-500", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.atptour.com/",
+      }
+    });
+    const html = await r.text();
+
+    const patterns = ["rankingData","__INITIAL_STATE__","playerName","fullName",
+      "ranklist","RankList","PlayerName","Alcaraz","ng-init","app-data",
+      "api/","/rankings/","rankRange"];
+    const jsonPatterns = patterns.map(p => ({
+      pattern: p, found: html.includes(p), index: html.indexOf(p)
+    }));
+
+    const apiMatches = [...html.matchAll(/["'`](\/[^"'`\s]*(?:api|ranking|player)[^"'`\s]*?)["'`]/gi)]
+      .map(m => m[1])
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .slice(0, 40);
+
+    const idx = html.indexOf("Alcaraz");
+    const alcarazContext = idx > 0 ? html.substring(idx - 400, idx + 400) : "not found";
+
+    res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
