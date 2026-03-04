@@ -109,4 +109,4 @@ app.get("/rankings", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => consol
+app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
