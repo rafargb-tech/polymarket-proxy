@@ -118,7 +118,84 @@ app.get("/rankings", async (req, res) => {
   }
 });
 
-// ── /rankings-debug ────────────────────────────────────────────────
+// ── /rankings-debug ────────────────────────────────────────────────────────
+app.get("/rankings-debug", async (req, res) => {
+  try {
+    const r = await fetch("https://www.atptour.com/en/rankings/singles?rankRange=1-500", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.atptour.com/",
+      }
+    });
+    const html = await r.text();
+    const patterns = ["rankingData","__INITIAL_STATE__","playerName","fullName",
+      "ranklist","RankList","PlayerName","Alcaraz","ng-init","app-data",
+      "api/","/rankings/","rankRange"];
+    const jsonPatterns = patterns.map(p => ({
+      pattern: p, found: html.includes(p), index: html.indexOf(p)
+    }));
+    const apiMatches = [...html.matchAll(/["'`](\/[^"'`\s]*(?:api|ranking|player)[^"'`\s]*?)["'`]/gi)]
+      .map(m => m[1])
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .slice(0, 40);
+    const idx = html.indexOf("Alcaraz");
+    const alcarazContext = idx > 0 ? html.substring(idx - 400, idx + 400) : "not found";
+    const pnIdx = html.indexOf("PlayerName");
+    const playerNameContext = pnIdx > 0 ? html.substring(pnIdx - 200, pnIdx + 500) : "not found";
+    const overviewRegex = /\/en\/players\/([a-z0-9-]+)\/[a-z0-9]+\/overview/g;
+    const slugs = [];
+    let m;
+    while ((m = overviewRegex.exec(html)) !== null && slugs.length < 20) {
+      if (!slugs.includes(m[1])) slugs.push(m[1]);
+    }
+    res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext, playerNameContext, slugPreview: slugs });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
+
+// ── /odds-debug ────────────────────────────────────────────────────────────
+app.get("/odds-debug", async (req, res) => {
+  try {
+    const url = "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=5&series_id=10365";
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
+    });
+    const data = await r.json();
+    const responseHeaders = {};
+    r.headers.forEach((v, k) => responseHeaders[k] = v);
+    const sample = data.slice(0, 2).map(e => ({
+      title: e.title,
+      outcomePrices: e.markets?.[0]?.outcomePrices,
+      moneylinePrice: e.markets?.find(m => m.sportsMarketType === "moneyline")?.outcomePrices,
+      updatedAt: e.updatedAt || e.updated_at || e.lastUpdated,
+    }));
+    res.json({ sample, responseHeaders, fetchedAt: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /event-debug ───────────────────────────────────────────────────────────
+app.get("/event-debug", async (req, res) => {
+  try {
+    const url = "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=3&series_id=10365";
+    const r = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache" }
+    });
+    const data = await r.json();
+    res.json(data[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
