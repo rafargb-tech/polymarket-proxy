@@ -171,5 +171,19 @@ app.get("/odds-debug", async (req, res) => {
   }
 });
 
+// ── /event-debug ───────────────────────────────────────────────────────────
+app.get("/event-debug", async (req, res) => {
+  try {
+    const url = "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=3&series_id=10365";
+    const r = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache" }
+    });
+    const data = await r.json();
+    // Devolver el primer evento completo sin filtrar nada
+    res.json(data[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
