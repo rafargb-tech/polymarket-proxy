@@ -26,7 +26,6 @@ app.get("/tennis", async (req, res) => {
     });
     const events = await r.json();
 
-    // Evitar que browser o cualquier proxy intermedio cachee
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
@@ -38,6 +37,7 @@ app.get("/tennis", async (req, res) => {
       if (dateTo && end > dateTo) return false;
       return true;
     });
+
     const matches = filtered.map(e => {
       const vsMatch = (e.title || "").match(/^(.+?)\s+vs\.?\s+(.+?)(?:\s*[\(\?:]|$)/i);
       const p1 = vsMatch ? vsMatch[1].trim() : e.title;
@@ -55,8 +55,16 @@ app.get("/tennis", async (req, res) => {
         url: `https://polymarket.com/event/${e.slug}`,
         updatedAt: e.updatedAt || null
       };
-    }).sort((a, b) => parseFloat(b.volume) - parseFloat(a.volume));
-    res.json(matches);
+    });
+
+    // Filtrar partidos ya resueltos (odds extremas = partido terminado)
+    const active = matches.filter(m =>
+      m.prob1 > 0.01 && m.prob1 < 0.99 &&
+      m.prob2 > 0.01 && m.prob2 < 0.99
+    );
+
+    active.sort((a, b) => parseFloat(b.volume) - parseFloat(a.volume));
+    res.json(active);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -80,7 +88,6 @@ app.get("/rankings", async (req, res) => {
       }
     });
     const html = await r.text();
-
     const overviewRegex = /\/en\/players\/([a-z0-9-]+)\/[a-z0-9]+\/overview/g;
     const seen = new Set();
     const rows = [];
@@ -93,7 +100,6 @@ app.get("/rankings", async (req, res) => {
       rows.push({ rank: rows.length + 1, name: slugToName(slug) });
       if (rows.length >= limit) break;
     }
-
     if (rows.length > 0) return res.json(rows);
     res.status(502).json({ error: "No se pudo parsear", htmlLength: html.length });
   } catch (e) {
