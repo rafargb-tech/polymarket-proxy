@@ -16,8 +16,21 @@ app.get("/tennis", async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query;
     const url = "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=100&series_id=10365";
-    const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
+    });
     const events = await r.json();
+
+    // Evitar que browser o cualquier proxy intermedio cachee
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
     const filtered = events.filter(e => {
       const end = e.endDate ? e.endDate.split("T")[0] : null;
       if (!end) return true;
@@ -39,7 +52,8 @@ app.get("/tennis", async (req, res) => {
         tournament: e.title || "",
         date: e.endDate ? e.endDate.split("T")[0] : null,
         volume: e.volume || "0",
-        url: `https://polymarket.com/event/${e.slug}`
+        url: `https://polymarket.com/event/${e.slug}`,
+        updatedAt: e.updatedAt || null
       };
     }).sort((a, b) => parseFloat(b.volume) - parseFloat(a.volume));
     res.json(matches);
@@ -48,12 +62,11 @@ app.get("/tennis", async (req, res) => {
   }
 });
 
-// Convierte slug a nombre: "carlos-alcaraz" → "Carlos Alcaraz"
+// ── /rankings ──────────────────────────────────────────────────────────────
 function slugToName(slug) {
   return slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-// ── /rankings ──────────────────────────────────────────────────────────────
 app.get("/rankings", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 500;
@@ -68,8 +81,6 @@ app.get("/rankings", async (req, res) => {
     });
     const html = await r.text();
 
-    // Extraer URLs /en/players/nombre-apellido/id/overview en orden
-    // Cada jugador aparece dos veces (overview + rankings-breakdown), tomamos solo overview
     const overviewRegex = /\/en\/players\/([a-z0-9-]+)\/[a-z0-9]+\/overview/g;
     const seen = new Set();
     const rows = [];
@@ -78,14 +89,12 @@ app.get("/rankings", async (req, res) => {
       const slug = m[1];
       if (seen.has(slug)) continue;
       seen.add(slug);
-      // Excluir slugs de plantillas o variables
       if (slug.includes("${") || slug.includes("getProfile")) continue;
       rows.push({ rank: rows.length + 1, name: slugToName(slug) });
       if (rows.length >= limit) break;
     }
 
     if (rows.length > 0) return res.json(rows);
-
     res.status(502).json({ error: "No se pudo parsear", htmlLength: html.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -104,40 +113,32 @@ app.get("/rankings-debug", async (req, res) => {
       }
     });
     const html = await r.text();
-
     const patterns = ["rankingData","__INITIAL_STATE__","playerName","fullName",
       "ranklist","RankList","PlayerName","Alcaraz","ng-init","app-data",
       "api/","/rankings/","rankRange"];
     const jsonPatterns = patterns.map(p => ({
       pattern: p, found: html.includes(p), index: html.indexOf(p)
     }));
-
     const apiMatches = [...html.matchAll(/["'`](\/[^"'`\s]*(?:api|ranking|player)[^"'`\s]*?)["'`]/gi)]
       .map(m => m[1])
       .filter((v, i, a) => a.indexOf(v) === i)
       .slice(0, 40);
-
     const idx = html.indexOf("Alcaraz");
     const alcarazContext = idx > 0 ? html.substring(idx - 400, idx + 400) : "not found";
-
     const pnIdx = html.indexOf("PlayerName");
     const playerNameContext = pnIdx > 0 ? html.substring(pnIdx - 200, pnIdx + 500) : "not found";
-
-    // Preview primeros 20 slugs encontrados
     const overviewRegex = /\/en\/players\/([a-z0-9-]+)\/[a-z0-9]+\/overview/g;
     const slugs = [];
     let m;
     while ((m = overviewRegex.exec(html)) !== null && slugs.length < 20) {
       if (!slugs.includes(m[1])) slugs.push(m[1]);
     }
-
     res.json({ htmlLength: html.length, apiMatches, jsonPatterns, alcarazContext, playerNameContext, slugPreview: slugs });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-const PORT = process.env.PORT || 3001;
 // ── /odds-debug ────────────────────────────────────────────────────────────
 app.get("/odds-debug", async (req, res) => {
   try {
@@ -145,14 +146,14 @@ app.get("/odds-debug", async (req, res) => {
     const r = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
       }
     });
     const data = await r.json();
     const responseHeaders = {};
     r.headers.forEach((v, k) => responseHeaders[k] = v);
-    // Devolver las odds del primer partido + headers
     const sample = data.slice(0, 2).map(e => ({
       title: e.title,
       outcomePrices: e.markets?.[0]?.outcomePrices,
@@ -164,4 +165,5 @@ app.get("/odds-debug", async (req, res) => {
   }
 });
 
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
