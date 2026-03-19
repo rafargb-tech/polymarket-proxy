@@ -138,4 +138,30 @@ app.get("/rankings-debug", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
+// ── /odds-debug ────────────────────────────────────────────────────────────
+app.get("/odds-debug", async (req, res) => {
+  try {
+    const url = "https://gamma-api.polymarket.com/events?active=true&closed=false&limit=5&series_id=10365";
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+      }
+    });
+    const data = await r.json();
+    const responseHeaders = {};
+    r.headers.forEach((v, k) => responseHeaders[k] = v);
+    // Devolver las odds del primer partido + headers
+    const sample = data.slice(0, 2).map(e => ({
+      title: e.title,
+      outcomePrices: e.markets?.[0]?.outcomePrices,
+      updatedAt: e.updatedAt || e.updated_at || e.lastUpdated,
+    }));
+    res.json({ sample, responseHeaders, fetchedAt: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => console.log(`✅ Proxy en puerto ${PORT}`));
